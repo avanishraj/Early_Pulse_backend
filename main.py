@@ -9,6 +9,10 @@ from health_insights import OnboardingResponses, generate_daily_routine_report
 
 app = FastAPI()
 
+@app.get("/")
+def read_root():
+    return {"Hello": "World"}
+
 def extract_text_from_pdf(uploaded_file: UploadFile):
     pdf_bytes = uploaded_file.file.read()
     text = ""
