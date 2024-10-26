@@ -4,10 +4,18 @@ from fastapi.responses import JSONResponse
 import PyPDF2
 from io import BytesIO
 from analyse_medical_history import MedicalHistoryRequest, analyze_medical_history
-from groq_data_preprocessing import parse_report, parse_report_2
+from conversational_chatbot import SYSTEM_PROMPT, ChatRequest, ChatResponse, format_message_history
+from groq_data_preprocessing import parse_report_2
 from health_insights import OnboardingResponses, generate_daily_routine_report
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from typing import List, Optional
+import groq
 
 app = FastAPI()
+groq_client = groq.Groq(
+    api_key=os.getenv("GROQ_API_KEY")
+)
 
 @app.get("/")
 def read_root():
@@ -77,4 +85,37 @@ async def generate_medical_history_report(history_data: MedicalHistoryRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat_endpoint(request: ChatRequest):
+    try:
+        # Format message history
+        message_history = format_message_history(request.messages)
+        
+        # Add system message at the beginning if it's not present
+        if not message_history or message_history[0]["role"] != "system":
+            message_history.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
+        
+        # Generate response using Groq
+        response = groq_client.chat.completions.create( 
+            model="mixtral-8x7b-32768",   
+            messages=message_history,
+            temperature=0.7,
+            max_tokens=1000,
+            top_p=0.95,
+            stream=False
+        )
+        
+        # Extract the assistant's response
+        assistant_response = response.choices[0].message.content
+        
+        return ChatResponse(response=assistant_response)
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Health check endpoint
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
 
