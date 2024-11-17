@@ -1,11 +1,11 @@
 import os
-from fastapi import FastAPI, UploadFile, HTTPException, Form
+from fastapi import FastAPI, UploadFile, HTTPException, Form,File
 from fastapi.responses import JSONResponse
 import PyPDF2
 from io import BytesIO
 from analyse_medical_history import MedicalHistoryRequest, analyze_medical_history
 from conversational_chatbot import SYSTEM_PROMPT, ChatRequest, ChatResponse, format_message_history
-from groq_data_preprocessing import parse_report_2
+from groq_data_preprocessing import parse_and_translate
 from health_insights import OnboardingResponses, generate_daily_routine_report
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -30,21 +30,34 @@ def extract_text_from_pdf(uploaded_file: UploadFile):
         text += page.extract_text() or ""
     return text
 
+# report object
+
+
 @app.post("/upload_pdf/")
-async def upload_pdf(language: str = Form(...), file_name: str = Form(...), file: UploadFile = Form(...)):
+async def upload_pdf(language: str = Form(...), file_name: str = Form(...), file: UploadFile = File(...)):
     try:
-        
+        if file.content_type != "application/pdf":
+            raise HTTPException(status_code=400, detail="Only PDF files are allowed.")
+
         extracted_text = extract_text_from_pdf(file)
-
         if not extracted_text:
-            return JSONResponse(status_code=400, content={"message": "Failed to extract text from PDF."})
-
+            return JSONResponse(
+                status_code=400, 
+                content={"message": "Failed to extract text from PDF."}
+            )
         # Parse the extracted text using the language variable
         # formatted_text = parse_report(extracted_text,language)
-        formatted_text = parse_report_2(extracted_text,language)
+        formatted_text = parse_and_translate(extracted_text,language)
 
-        return JSONResponse(status_code=200, content={"message": "File processed successfully.", "LLM_output": formatted_text, "language": language})
-
+        return JSONResponse(
+            status_code=200, 
+            content={
+                "message": "File processed successfully.",
+                "LLM_output": formatted_text,
+                "language": language,
+                "file_name": file_name
+            }
+        )
     except Exception as e:
         return JSONResponse(status_code=500, content={"message": f"An error occurred: {str(e)}"})
 
@@ -119,3 +132,12 @@ async def chat_endpoint(request: ChatRequest):
 async def health_check():
     return {"status": "healthy"}
 
+
+if(__name__=="__main__"):
+    import uvicorn
+    uvicorn.run(
+        "main:app",  # Replace 'main' with your script's filename (without .py)
+        host="0.0.0.0", 
+        port=8000, 
+        reload=True  # Set to False in production
+    )

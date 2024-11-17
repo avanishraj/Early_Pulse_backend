@@ -4,6 +4,8 @@ from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.chains import LLMChain
 from langchain_core.output_parsers import StrOutputParser
+import json
+
 
 load_dotenv()
 groq_api_key = os.getenv("GROQ_API_KEY")
@@ -13,67 +15,186 @@ llm = ChatGroq(
     temperature=0,  
 )
 
+from langchain_core.output_parsers import JsonOutputParser
+from langchain_core.pydantic_v1 import BaseModel, Field
 
-def parse_report_2(text_data, language):
-    system_prompt_1 = """You are an experienced doctor analyzing medical reports. Format the data into a clear, structured summary with normal ranges and assessments.
+class Report(BaseModel):
+    parameter: str=Field(description="name of the medical parameter from the report")
+    observed_value: str=Field(description="value mentioned in the report along with SI unit")
+    normal_upper_limit: str=Field(description="normal upper value of that medical parameter with SI unit")
+    normal_lower_limit: str=Field(description="normal lower value of that medical parameter with SI unit")
+    explanation: str=Field(description="Explain in very short about the paramter to a normal person")
+    
 
-Format each finding as:
-Parameter: Value - Range (Interpretation if needed)
+# def parse_report_2(text_data, language):
+#     system_prompt_1 = """You are an experienced doctor analyzing medical reports. Format the data into a clear, structured summary with normal ranges and assessments.
 
-Example format:
-Haemoglobin: 14.2 g/dL - Normal range (13.5-17.5 g/dL for men)
-Calcium: 8.9 mg/dL - Normal range (8.5-10.5 mg/dL)
-Blood Pressure: 135/90 mmHg - Stage 1 Hypertension
+# Format each finding as:
+# Parameter: Value - Range (Interpretation if needed)
 
-Provide only the formatted data and translated output string without any additional message, LLM_Output, text, headers, or metadata.
-At last provide a briefer summary in very easy and short explanation
-"""
+# Example format:
+# Haemoglobin: 14.2 g/dL - Normal range (13.5-17.5 g/dL for men)
+# Calcium: 8.9 mg/dL - Normal range (8.5-10.5 mg/dL)
+# Blood Pressure: 135/90 mmHg - Stage 1 Hypertension
 
-    prompt1 = ChatPromptTemplate.from_messages([
+# Provide only the formatted data and translated output string without any additional message, LLM_Output, text, headers, or metadata.
+# At last provide a briefer summary in very easy and short explanation
+# """
+
+#     prompt1 = ChatPromptTemplate.from_messages([
+#         ("system", system_prompt_1),
+#         ("user", "{input}"),
+#     ])
+
+#     prompt2 = ChatPromptTemplate.from_template(
+#         """Translate the following medical report into {language}. 
+#         Maintain the exact same format and structure.
+#         Provide only the translated text without any additional commentary or metadata.
+        
+#         Report to translate:
+#         {data}"""
+#     )
+
+#     format_chain = (
+#         prompt1
+#         | llm
+#         | StrOutputParser()
+#     )
+
+#     translation_chain = (
+#         prompt2
+#         | llm
+#         | StrOutputParser()
+#     )
+
+#     # Process the text
+#     try:
+#         # Get formatted text and clean it
+#         formatted_text = format_chain.invoke({"input": text_data})
+#         formatted_text = formatted_text.strip()
+
+#         # Get translated text and clean it
+#         translated_text = translation_chain.invoke({
+#             "data": formatted_text,
+#             "language": language
+#         })
+#         translated_text = translated_text.strip()
+
+#         # Remove any remaining artifacts
+#         translated_text = translated_text.replace('```', '')
+#         translated_text = translated_text.replace('Content:', '')
+#         translated_text = translated_text.replace('Output:', '')
+
+#         return translated_text
+
+#     except Exception as e:
+#         return f"Error processing report: {str(e)}"
+    
+
+
+def parse_report_2(text_data: str, language="english"):
+    system_prompt_1 = """
+    |<ROLE>|
+    You are an experienced doctor analyzing medical reports. Format the data into a clear, structured summary with normal ranges and assessments.
+
+    |<INSTRUCTIONS>|
+    You have to return a JSON object that has a list of each finding:
+    - parameter
+    - observed_value : "numeric_value (SI unit)"
+    - normal_upper_limit  : "numeric_value (SI unit)"
+    - normal_lower_limit : "numeric_value (SI unit)"
+    - explanation
+
+    Example JSON format:
+    [
+         {{
+            "parameter": "Haemoglobin",
+            "observed_value": "14.2 (g/dL)",
+            "normal_upper_limit": "17.5 (g/dL)",
+            "normal_lower_limit": "13.5 (g/dL)"
+            "explanation":"explanation about Haemoglobin in the given language also explain the role of Haemoglobin for the body"
+        }},
+        {{...}}, {{...}}
+    ]
+
+    Provide only the formatted data and translated output string without any additional message, LLM_Output, text, headers, or metadata.
+    At last, provide a briefer summary in very easy and short explanation.
+    """
+
+    prompt1 = ChatPromptTemplate.from_messages([ 
         ("system", system_prompt_1),
         ("user", "{input}"),
     ])
-
-    prompt2 = ChatPromptTemplate.from_template(
-        """Translate the following medical report into {language}. 
-        Maintain the exact same format and structure.
-        Provide only the translated text without any additional commentary or metadata.
-        
-        Report to translate:
-        {data}"""
-    )
-
+    parser=JsonOutputParser(pydantic_object=Report)
     format_chain = (
         prompt1
         | llm
-        | StrOutputParser()
-    )
-
-    translation_chain = (
-        prompt2
-        | llm
-        | StrOutputParser()
+        | parser  # Ensure output is parsed as JSON
     )
 
     # Process the text
     try:
         # Get formatted text and clean it
         formatted_text = format_chain.invoke({"input": text_data})
-        formatted_text = formatted_text.strip()
-
-        # Get translated text and clean it
-        translated_text = translation_chain.invoke({
-            "data": formatted_text,
-            "language": language
-        })
-        translated_text = translated_text.strip()
-
-        # Remove any remaining artifacts
-        translated_text = translated_text.replace('```', '')
-        translated_text = translated_text.replace('Content:', '')
-        translated_text = translated_text.replace('Output:', '')
-
-        return translated_text
+        return formatted_text
 
     except Exception as e:
-        return f"Error processing report: {str(e)}"
+        return {"error": str(e)}  # Return error message in JSON format
+    
+def translate(language: str, json_data: str):
+    # Define the translation system prompt
+    translation_prompt = """
+    |<ROLE>|
+    You are an experienced doctor translating medical reports. Please translate the given report to the specified language while keeping the same structure and key names.
+
+    |<INSTRUCTIONS>|
+    You must translate the report in such a way that the following keys remain the same:
+    - parameter
+    - observed_value : "numeric_value (SI unit)"
+    - normal_upper_limit  : "numeric_value (SI unit)"
+    - normal_lower_limit : "numeric_value (SI unit)"
+    - explanation
+
+    DO NOT TRANSLATE THE KEYS
+
+    Example JSON format (translated):
+    [
+        {{
+            "parameter": "Haemoglobin",
+            "observed_value": "14.2 (g/dL)",
+            "normal_upper_limit": "17.5 (g/dL)",
+            "normal_lower_limit": "13.5 (g/dL)"
+            "explanation":"explanation about Haemoglobin in the given language also explain the role of Haemoglobin for the body"
+        }},
+        {{...}}, {{...}}
+    ]
+
+    <|IMPORTANT|>
+    - Do NOT include any opening or closing statements like "Here is the output..." or "Note: I corrected...".
+    - Your output MUST start and end with curly brackets, with NO additional text outside of the JSON object.
+    - OUTPUT must be a JSON
+    """
+    parser = JsonOutputParser(pydantic_object=Report)
+
+    chat_prompt=ChatPromptTemplate.from_messages([
+        ("system",translation_prompt),
+        ("human",f"""
+         translate this report - {json_data} into this language - {language}, 
+         keep the KEY NAMES in ENGLISH , DO NOT TRANSLATE the KEY
+         """)
+    ])
+    try:
+      chain=chat_prompt|llm|parser
+      response=chain.invoke({"json_data":json_data,"language":language})
+      return response
+
+    except Exception as e:
+        return {"error": str(e)}  # Return error message in JSON format
+
+def parse_and_translate(text_data,language):
+    report=parse_report_2(text_data,language)
+    report=json.dumps(report)
+    report=report.replace("{","{{")
+    report=report.replace("}","}}")
+    translation=translate(language,report)
+    return translation
