@@ -99,17 +99,14 @@ async def generate_medical_history_report(history_data: MedicalHistoryRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
     try:
-        # Format message history
         message_history = format_message_history(request.messages)
-        
-        # Add system message at the beginning if it's not present
         if not message_history or message_history[0]["role"] != "system":
             message_history.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
-        
-        # Generate response using Groq
+    
         response = groq_client.chat.completions.create( 
             model="mixtral-8x7b-32768",   
             messages=message_history,
@@ -118,8 +115,6 @@ async def chat_endpoint(request: ChatRequest):
             top_p=0.95,
             stream=False
         )
-        
-        # Extract the assistant's response
         assistant_response = response.choices[0].message.content
         
         return ChatResponse(response=assistant_response)
