@@ -108,7 +108,7 @@ async def chat_endpoint(request: ChatRequest):
             message_history.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
     
         response = groq_client.chat.completions.create( 
-            model="mixtral-8x7b-32768",   
+            model="Llama3-8b-8192",   
             messages=message_history,
             temperature=0.7,
             max_tokens=1000,
